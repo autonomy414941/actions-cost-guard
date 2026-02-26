@@ -1,0 +1,134 @@
+:root {
+  --bg: #f5f7ef;
+  --ink: #16211f;
+  --muted: #4a5c59;
+  --panel: #fefcf8;
+  --line: #d8ddd0;
+  --accent: #b43f2f;
+  --accent-ink: #fff4ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 20% 0%, #eceac8 0%, var(--bg) 40%, #edf0e4 100%);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.shell {
+  width: min(960px, 94vw);
+  margin: 2.5rem auto 4rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.hero {
+  padding: 1.2rem 0;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0.4rem 0;
+  font-size: clamp(1.75rem, 4vw, 2.7rem);
+  line-height: 1.1;
+}
+
+.subhead {
+  margin: 0;
+  color: var(--muted);
+  max-width: 58ch;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+textarea,
+input,
+select,
+button {
+  font: inherit;
+}
+
+textarea,
+input,
+select {
+  width: 100%;
+  border: 1px solid #c5ccbd;
+  border-radius: 8px;
+  padding: 0.64rem 0.72rem;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.fields {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+button {
+  margin-top: 0.95rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 1.05rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.result h2,
+.muted h2 {
+  margin-top: 0;
+}
+
+.summary {
+  display: grid;
+  gap: 0.35rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.95rem;
+}
+
+pre {
+  overflow-x: auto;
+  border: 1px solid #d5dacc;
+  border-radius: 8px;
+  padding: 0.7rem;
+  background: #f8faf4;
+}
+
+.checkout {
+  background: #1a3f36;
+}
+
+.muted ul {
+  margin-bottom: 0;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "actions-cost-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PR-level GitHub Actions cost estimator and policy gate",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "npm run build && node --test dist/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.2"
+  }
+}
