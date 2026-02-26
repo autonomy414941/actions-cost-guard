@@ -1,9 +1,16 @@
 const estimateForm = document.getElementById("estimate-form");
+const proofForm = document.getElementById("proof-form");
+
 const resultSection = document.getElementById("result");
 const recommendationEl = document.getElementById("recommendation");
 const summaryEl = document.getElementById("summary");
 const policySnippetEl = document.getElementById("policy-snippet");
+const billingStatusEl = document.getElementById("billing-status");
+const exportOutput = document.getElementById("export-output");
+
 const checkoutBtn = document.getElementById("checkout-btn");
+const proofBtn = document.getElementById("proof-btn");
+const exportBtn = document.getElementById("export-btn");
 const submitBtn = document.getElementById("submit-btn");
 const sampleEstimateBtn = document.getElementById("sample-estimate-btn");
 const workflowUrlInput = document.getElementById("workflow-url");
@@ -30,12 +37,17 @@ const DEFAULT_WORKFLOW_YAML = [
   "      - uses: actions/checkout@v4",
   "      - run: npm run lint"
 ].join("\n");
+
 const WORKFLOW_STORAGE_KEY = "actions-cost-guard.workflow_yaml";
 const AUTO_PREVIEW_STORAGE_KEY = "actions-cost-guard.auto_preview_v1";
 
+const queryParams = new URLSearchParams(window.location.search);
+const isSelfTest = ["1", "true", "yes"].includes((queryParams.get("selfTest") || "").toLowerCase());
+const activeSource = resolveSource(queryParams);
+
 let activeSessionId = null;
 let activePaymentUrl = null;
-const activeSource = resolveSource();
+let exportUnlocked = false;
 
 async function postJson(url, payload) {
   const response = await fetch(url, {
@@ -45,6 +57,7 @@ async function postJson(url, payload) {
     },
     body: JSON.stringify(payload)
   });
+
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error || "request_failed");
@@ -63,8 +76,7 @@ function normalizeSource(rawSource) {
   return normalized;
 }
 
-function resolveSource() {
-  const params = new URLSearchParams(window.location.search);
+function resolveSource(params) {
   return normalizeSource(params.get("utm_source") || params.get("source") || params.get("ref") || "web");
 }
 
@@ -107,6 +119,11 @@ function setImportStatus(message, isError = false) {
   importStatusEl.classList.toggle("error", isError);
 }
 
+function setBillingStatus(message, tone = "neutral") {
+  billingStatusEl.textContent = message;
+  billingStatusEl.dataset.tone = tone;
+}
+
 function formatImportError(errorCode) {
   if (errorCode === "invalid_workflow_url") {
     return "Enter a valid HTTPS GitHub workflow URL.";
@@ -139,7 +156,7 @@ function buildEstimateRequest(workflowYamlOverride = null) {
     budgetUsd: Number(budgetUsdInput.value),
     policyMode: policyModeInput.value,
     source: activeSource,
-    selfTest: false
+    selfTest: isSelfTest
   };
 }
 
@@ -158,6 +175,16 @@ function buildPolicySnippet(estimate) {
         ? "Result: warning should be posted and owner approval required."
         : "Result: merge should be blocked until estimated cost drops."
   ].join("\n");
+}
+
+function resetBillingState() {
+  exportUnlocked = false;
+  if (proofForm) {
+    proofForm.reset();
+  }
+  exportOutput.textContent = "";
+  exportOutput.hidden = true;
+  setBillingStatus("Checkout not started.", "neutral");
 }
 
 function renderEstimate(payload) {
@@ -184,6 +211,7 @@ function renderEstimate(payload) {
 
   policySnippetEl.textContent = buildPolicySnippet(estimate);
   resultSection.hidden = false;
+  resetBillingState();
 }
 
 function setBusyState(isBusy) {
@@ -209,12 +237,18 @@ async function generateEstimate({
 }
 
 function shouldRunAutoPreview() {
-  const params = new URLSearchParams(window.location.search);
-  const preview = (params.get("preview") || "").trim().toLowerCase();
+  const preview = (queryParams.get("preview") || "").trim().toLowerCase();
   if (preview === "off" || preview === "0") {
     return false;
   }
   return !hasCompletedAutoPreview();
+}
+
+function requireSessionId() {
+  if (!activeSessionId) {
+    throw new Error("session_not_ready");
+  }
+  return activeSessionId;
 }
 
 async function runAutoPreview() {
@@ -236,6 +270,7 @@ async function runAutoPreview() {
 
 initializeWorkflowYaml();
 setImportStatus("Supports github.com/blob and raw.githubusercontent.com links.");
+setBillingStatus("Checkout not started.", "neutral");
 
 workflowYamlInput.addEventListener("input", () => {
   persistWorkflowYaml(workflowYamlInput.value);
@@ -250,6 +285,7 @@ estimateForm.addEventListener("submit", async (event) => {
   } catch (error) {
     recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
     resultSection.hidden = false;
+    setBillingStatus("Estimate failed. Fix input and retry.", "error");
   } finally {
     setBusyState(false);
   }
@@ -300,6 +336,7 @@ if (sampleEstimateBtn) {
       setImportStatus(`Sample estimate failed: ${error.message}`, true);
       recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
       resultSection.hidden = false;
+      setBillingStatus("Sample generation failed.", "error");
     } finally {
       setBusyState(false);
     }
@@ -307,28 +344,93 @@ if (sampleEstimateBtn) {
 }
 
 checkoutBtn.addEventListener("click", async () => {
-  if (!activeSessionId) {
-    recommendationEl.textContent = "Generate an estimate before checkout.";
-    return;
-  }
-
   checkoutBtn.disabled = true;
+  setBillingStatus("Preparing checkout...", "neutral");
+
   try {
+    const sessionId = requireSessionId();
     const payload = await postJson("/api/billing/checkout", {
-      sessionId: activeSessionId,
+      sessionId,
       source: activeSource,
-      selfTest: false
+      selfTest: isSelfTest
     });
 
     const url = payload.paymentUrl || activePaymentUrl;
     if (!url) {
       throw new Error("missing_payment_url");
     }
-    window.location.assign(url);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setBillingStatus("Checkout opened in a new tab. Submit payment proof here to unlock export.", "ok");
   } catch (error) {
-    recommendationEl.textContent = `Checkout could not start: ${error.message}`;
+    const message =
+      error.message === "session_not_ready"
+        ? "Generate an estimate before checkout."
+        : `Checkout could not start: ${error.message}`;
+    setBillingStatus(message, "error");
   } finally {
     checkoutBtn.disabled = false;
+  }
+});
+
+proofForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  proofBtn.disabled = true;
+  setBillingStatus("Submitting payment proof...", "neutral");
+
+  try {
+    const sessionId = requireSessionId();
+    const formData = new FormData(proofForm);
+    await postJson("/api/billing/proof", {
+      sessionId,
+      payerEmail: String(formData.get("payerEmail") || "").trim(),
+      transactionId: String(formData.get("transactionId") || "").trim(),
+      evidenceUrl: String(formData.get("evidenceUrl") || "").trim(),
+      note: String(formData.get("note") || "").trim(),
+      source: activeSource,
+      selfTest: isSelfTest
+    });
+    exportUnlocked = true;
+    setBillingStatus("Payment proof accepted. Export is unlocked.", "ok");
+  } catch (error) {
+    const message =
+      error.message === "session_not_ready"
+        ? "Generate an estimate before submitting proof."
+        : `Payment proof failed: ${error.message}`;
+    setBillingStatus(message, "error");
+  } finally {
+    proofBtn.disabled = false;
+  }
+});
+
+exportBtn.addEventListener("click", async () => {
+  exportBtn.disabled = true;
+  setBillingStatus("Preparing export...", "neutral");
+
+  try {
+    const sessionId = requireSessionId();
+    if (!exportUnlocked) {
+      throw new Error("payment_required");
+    }
+
+    const payload = await postJson("/api/export/policy-pack", {
+      sessionId,
+      source: activeSource,
+      selfTest: isSelfTest
+    });
+
+    exportOutput.textContent = String(payload.content || "");
+    exportOutput.hidden = false;
+    setBillingStatus(`Policy pack ready: ${payload.fileName || "policy-pack.txt"}`, "ok");
+  } catch (error) {
+    const message =
+      error.message === "payment_required"
+        ? "Complete checkout and payment proof first."
+        : error.message === "session_not_ready"
+          ? "Generate an estimate before export."
+          : `Export failed: ${error.message}`;
+    setBillingStatus(message, "error");
+  } finally {
+    exportBtn.disabled = false;
   }
 });
 
@@ -340,6 +442,6 @@ if (shouldRunAutoPreview()) {
 
 postJson("/api/events/landing-view", {
   source: activeSource,
-  selfTest: false,
+  selfTest: isSelfTest,
   userAgent: navigator.userAgent
 }).catch(() => undefined);

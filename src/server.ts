@@ -3,7 +3,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { estimateWorkflowCost, sanitizeEstimateInput } from "./estimator.js";
+import { estimateWorkflowCost, sanitizeEstimateInput, type PolicyMode } from "./estimator.js";
 import { fetchWorkflowYaml, resolveRawWorkflowUrl, sanitizeWorkflowUrl } from "./workflow-import.js";
 
 const HOST = process.env.HOST || "0.0.0.0";
@@ -18,8 +18,21 @@ const STATE_FILE = path.join(DATA_DIR, "state.json");
 const EVENTS_FILE = path.join(DATA_DIR, "events.jsonl");
 const SITE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../site");
 
-type EventType = "landing_view" | "estimate_generated" | "checkout_started";
+type EventType =
+  | "landing_view"
+  | "estimate_generated"
+  | "checkout_started"
+  | "payment_evidence_submitted"
+  | "policy_pack_exported";
 type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "auto_preview" | "unknown";
+
+type PaymentProof = {
+  submittedAt: string;
+  payerEmail: string;
+  transactionId: string;
+  evidenceUrl?: string;
+  note?: string;
+};
 
 type EstimateSession = {
   sessionId: string;
@@ -27,10 +40,17 @@ type EstimateSession = {
   updatedAt: string;
   source: string;
   selfTest: boolean;
+  jobs: number;
+  stepCount: number;
+  minutesPerRun: number;
+  costPerRunUsd: number;
   budgetUsd: number;
   monthlyRuns: number;
   monthlyCostUsd: number;
+  policyMode: PolicyMode;
   policyDecision: "pass" | "warn" | "block";
+  paid: boolean;
+  paymentProof?: PaymentProof;
 };
 
 type EventRecord = {
@@ -61,7 +81,13 @@ const STATIC_MIME: Record<string, string> = {
   ".svg": "image/svg+xml; charset=utf-8"
 };
 
-const EVENT_TYPES: EventType[] = ["landing_view", "estimate_generated", "checkout_started"];
+const EVENT_TYPES: EventType[] = [
+  "landing_view",
+  "estimate_generated",
+  "checkout_started",
+  "payment_evidence_submitted",
+  "policy_pack_exported"
+];
 
 const state: State = {
   sessions: {},
@@ -112,11 +138,62 @@ function normalizeEstimateIntent(value: unknown): EstimateIntent {
   return "unknown";
 }
 
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (value == null || value === "") {
+    return undefined;
+  }
+  return parseBoolean(value);
+}
+
+function asOptionalString(payload: JsonObject, key: string, maxLength = 200): string | undefined {
+  const raw = payload[key];
+  if (raw == null) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new Error(`invalid_${key}`);
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.length > maxLength) {
+    throw new Error(`invalid_${key}`);
+  }
+  return trimmed;
+}
+
+function asRequiredString(payload: JsonObject, key: string, maxLength = 200): string {
+  const value = asOptionalString(payload, key, maxLength);
+  if (!value) {
+    throw new Error(`invalid_${key}`);
+  }
+  return value;
+}
+
+function parseSessionId(payload: JsonObject): string {
+  const sessionId = asRequiredString(payload, "sessionId", 120);
+  if (!/^[a-zA-Z0-9-]{8,120}$/.test(sessionId)) {
+    throw new Error("invalid_session_id");
+  }
+  return sessionId;
+}
+
+function parseEmail(payload: JsonObject, key: string): string {
+  const value = asRequiredString(payload, key, 200).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    throw new Error(`invalid_${key}`);
+  }
+  return value;
+}
+
 function emptyCounts(): MetricsCounts {
   return {
     landing_view: 0,
     estimate_generated: 0,
-    checkout_started: 0
+    checkout_started: 0,
+    payment_evidence_submitted: 0,
+    policy_pack_exported: 0
   };
 }
 
@@ -187,11 +264,15 @@ function sendText(response: http.ServerResponse, statusCode: number, text: strin
 }
 
 function safeErrorCode(error: unknown): string {
-  if (
-    error instanceof Error &&
-    (/^invalid_[a-z0-9_]+$/.test(error.message) || /^workflow_[a-z0-9_]+$/.test(error.message))
-  ) {
-    return error.message;
+  if (error instanceof Error) {
+    if (
+      /^invalid_[a-z0-9_]+$/.test(error.message) ||
+      /^workflow_[a-z0-9_]+$/.test(error.message) ||
+      error.message === "payload_too_large" ||
+      error.message === "payment_required"
+    ) {
+      return error.message;
+    }
   }
   return "invalid_request";
 }
@@ -275,6 +356,70 @@ function buildRecommendation(decision: "pass" | "warn" | "block", monthlyCostUsd
   return `Estimated monthly spend $${monthlyCostUsd.toFixed(2)} exceeds budget ($${budgetUsd.toFixed(2)}). Block merge until workflow cost is reduced.`;
 }
 
+function getSession(sessionId: string): EstimateSession {
+  const session = state.sessions[sessionId];
+  if (!session) {
+    throw new Error("invalid_session_id");
+  }
+  return session;
+}
+
+function buildPolicyPack(session: EstimateSession): string {
+  const decisionLine =
+    session.policyDecision === "pass"
+      ? "Allow merge. Keep monitoring weekly drift."
+      : session.policyDecision === "warn"
+        ? "Warn in PR and require owner approval."
+        : "Block merge until cost is reduced.";
+
+  const prCommentLead =
+    session.policyDecision === "pass"
+      ? "✅ Actions Cost Guard: PASS"
+      : session.policyDecision === "warn"
+        ? "⚠️ Actions Cost Guard: WARN"
+        : "🛑 Actions Cost Guard: BLOCK";
+
+  const lines: string[] = [];
+  lines.push("Actions Cost Guard Policy Pack");
+  lines.push(`Session: ${session.sessionId}`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("ESTIMATE SUMMARY");
+  lines.push(`jobs=${session.jobs}`);
+  lines.push(`steps=${session.stepCount}`);
+  lines.push(`minutes_per_run=${session.minutesPerRun.toFixed(2)}`);
+  lines.push(`cost_per_run_usd=${session.costPerRunUsd.toFixed(2)}`);
+  lines.push(`monthly_runs=${session.monthlyRuns}`);
+  lines.push(`monthly_cost_usd=${session.monthlyCostUsd.toFixed(2)}`);
+  lines.push(`budget_usd=${session.budgetUsd.toFixed(2)}`);
+  lines.push(`policy_mode=${session.policyMode}`);
+  lines.push(`policy_decision=${session.policyDecision}`);
+  lines.push("");
+  lines.push("PR COMMENT TEMPLATE");
+  lines.push(`${prCommentLead}`);
+  lines.push(
+    `Estimated monthly spend is $${session.monthlyCostUsd.toFixed(2)} against a budget of $${session.budgetUsd.toFixed(2)}.`
+  );
+  lines.push(`Decision: ${session.policyDecision.toUpperCase()} (${session.policyMode.toUpperCase()} mode).`);
+  lines.push("");
+  lines.push("REVIEWER CHECKLIST");
+  lines.push(`- ${decisionLine}`);
+  lines.push("- Confirm run frequency assumptions for this workflow.");
+  lines.push("- Check for redundant jobs or duplicate matrix targets.");
+  lines.push("- Cache dependencies where possible.");
+  lines.push("- Gate expensive jobs to pull_request labels or changed paths.");
+  lines.push("");
+  lines.push("WEEKLY SPEND DRIFT WORKSHEET");
+  lines.push("- Week ending:");
+  lines.push("- Actual monthly-run equivalent:");
+  lines.push("- Actual cost estimate:");
+  lines.push("- Delta vs budget:");
+  lines.push("- Action owner:");
+  lines.push("- Next review date:");
+
+  return lines.join("\n");
+}
+
 const server = http.createServer(async (request, response) => {
   const method = request.method || "GET";
   const url = new URL(request.url || "/", PUBLIC_BASE_URL);
@@ -330,10 +475,16 @@ const server = http.createServer(async (request, response) => {
         updatedAt: now,
         source,
         selfTest,
+        jobs: estimate.summary.jobs,
+        stepCount: estimate.summary.stepCount,
+        minutesPerRun: estimate.summary.minutesPerRun,
+        costPerRunUsd: estimate.summary.costPerRunUsd,
         budgetUsd: estimate.summary.budgetUsd,
         monthlyRuns: estimate.summary.monthlyRuns,
         monthlyCostUsd: estimate.summary.monthlyCostUsd,
-        policyDecision: estimate.summary.policyDecision
+        policyMode: estimate.summary.policyMode,
+        policyDecision: estimate.summary.policyDecision,
+        paid: false
       };
 
       await Promise.all([
@@ -362,6 +513,9 @@ const server = http.createServer(async (request, response) => {
         ),
         checkout: {
           endpoint: "/api/billing/checkout",
+          paymentUrl: PAYMENT_URL,
+          proofEndpoint: "/api/billing/proof",
+          exportEndpoint: "/api/export/policy-pack",
           priceUsd: PRICE_USD
         }
       });
@@ -384,13 +538,10 @@ const server = http.createServer(async (request, response) => {
 
     if (method === "POST" && url.pathname === "/api/billing/checkout") {
       const body = await parseBody(request);
-      const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
-      if (!sessionId || !state.sessions[sessionId]) {
-        throw new Error("invalid_session_id");
-      }
-      const session = state.sessions[sessionId];
+      const sessionId = parseSessionId(body);
+      const session = getSession(sessionId);
       const source = normalizeSource(body.source, session.source);
-      const selfTest = parseBoolean(body.selfTest) || session.selfTest;
+      const selfTest = (parseOptionalBoolean(body.selfTest) ?? false) || session.selfTest;
 
       await trackEvent("checkout_started", {
         source,
@@ -413,6 +564,75 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (method === "POST" && url.pathname === "/api/billing/proof") {
+      const body = await parseBody(request);
+      const sessionId = parseSessionId(body);
+      const session = getSession(sessionId);
+      const source = normalizeSource(body.source, session.source);
+      const selfTest = (parseOptionalBoolean(body.selfTest) ?? false) || session.selfTest;
+
+      const proof: PaymentProof = {
+        submittedAt: new Date().toISOString(),
+        payerEmail: parseEmail(body, "payerEmail"),
+        transactionId: asRequiredString(body, "transactionId", 120),
+        evidenceUrl: asOptionalString(body, "evidenceUrl", 300),
+        note: asOptionalString(body, "note", 500)
+      };
+
+      session.paid = true;
+      session.paymentProof = proof;
+      session.updatedAt = new Date().toISOString();
+
+      await trackEvent("payment_evidence_submitted", {
+        source,
+        selfTest,
+        sessionId,
+        details: {
+          payerEmail: proof.payerEmail,
+          transactionId: proof.transactionId
+        }
+      });
+
+      sendJson(response, 200, {
+        status: "accepted",
+        sessionId,
+        paid: true,
+        exportEndpoint: "/api/export/policy-pack"
+      });
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/api/export/policy-pack") {
+      const body = await parseBody(request);
+      const sessionId = parseSessionId(body);
+      const session = getSession(sessionId);
+      const source = normalizeSource(body.source, session.source);
+      const selfTest = (parseOptionalBoolean(body.selfTest) ?? false) || session.selfTest;
+
+      if (!session.paid) {
+        throw new Error("payment_required");
+      }
+
+      await trackEvent("policy_pack_exported", {
+        source,
+        selfTest,
+        sessionId,
+        details: {
+          monthlyCostUsd: session.monthlyCostUsd,
+          budgetUsd: session.budgetUsd,
+          policyDecision: session.policyDecision
+        }
+      });
+
+      sendJson(response, 200, {
+        status: "ok",
+        fileName: `actions-cost-guard-policy-pack-${session.sessionId.slice(0, 8)}.txt`,
+        content: buildPolicyPack(session),
+        policyDecision: session.policyDecision
+      });
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/api/metrics") {
       sendJson(response, 200, {
         totals: {
@@ -420,6 +640,7 @@ const server = http.createServer(async (request, response) => {
           excludingSelfTests: calculateCounts(false)
         },
         sessionCount: Object.keys(state.sessions).length,
+        paidSessionCount: Object.values(state.sessions).filter((session) => session.paid).length,
         generatedAt: new Date().toISOString()
       });
       return;
@@ -453,6 +674,10 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     const code = safeErrorCode(error);
+    if (code === "payment_required") {
+      sendJson(response, 402, { error: code });
+      return;
+    }
     if (code === "payload_too_large") {
       sendJson(response, 413, { error: code });
       return;

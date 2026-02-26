@@ -30,14 +30,40 @@ if [[ "$checkout_mode" != "payment_link" ]]; then
   exit 1
 fi
 
+proof_payload="$(curl -fsS -X POST "$BASE_URL/api/billing/proof" \
+  -H 'content-type: application/json' \
+  --data "{\"sessionId\":\"$session_id\",\"payerEmail\":\"selftest@example.com\",\"transactionId\":\"smoke-$(date +%s)\",\"source\":\"smoke\",\"selfTest\":true}")"
+proof_status="$(printf '%s' "$proof_payload" | jq -r '.status')"
+if [[ "$proof_status" != "accepted" ]]; then
+  echo "proof failed: $proof_payload" >&2
+  exit 1
+fi
+
+export_payload="$(curl -fsS -X POST "$BASE_URL/api/export/policy-pack" \
+  -H 'content-type: application/json' \
+  --data "{\"sessionId\":\"$session_id\",\"source\":\"smoke\",\"selfTest\":true}")"
+export_file="$(printf '%s' "$export_payload" | jq -r '.fileName')"
+if [[ -z "$export_file" || "$export_file" == "null" ]]; then
+  echo "export failed: $export_payload" >&2
+  exit 1
+fi
+
 metrics_payload="$(curl -fsS "$BASE_URL/api/metrics")"
 estimate_count="$(printf '%s' "$metrics_payload" | jq -r '.totals.includingSelfTests.estimate_generated')"
+proof_count="$(printf '%s' "$metrics_payload" | jq -r '.totals.includingSelfTests.payment_evidence_submitted')"
 if [[ "$estimate_count" == "null" || "$estimate_count" -lt 1 ]]; then
   echo "metrics missing estimate_generated: $metrics_payload" >&2
+  exit 1
+fi
+if [[ "$proof_count" == "null" || "$proof_count" -lt 1 ]]; then
+  echo "metrics missing payment_evidence_submitted: $metrics_payload" >&2
   exit 1
 fi
 
 echo "healthStatus=$status"
 echo "policyDecision=$decision"
 echo "checkoutMode=$checkout_mode"
+echo "proofStatus=$proof_status"
+echo "exportFile=$export_file"
 echo "estimateGeneratedIncludingSelfTests=$estimate_count"
+echo "paymentProofIncludingSelfTests=$proof_count"

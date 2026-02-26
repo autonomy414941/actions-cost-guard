@@ -70,7 +70,33 @@
         <p id="recommendation"></p>
         <div class="summary" id="summary"></div>
         <pre id="policy-snippet"></pre>
-        <button id="checkout-btn" class="checkout">Unlock team policy pack ($19/month)</button>
+        <div class="action-row">
+          <button id="checkout-btn" class="checkout">Open checkout ($19/month)</button>
+          <button id="export-btn" class="secondary" type="button">Export unlocked policy pack</button>
+        </div>
+        <form id="proof-form" class="proof-form">
+          <h3>Payment proof unlock</h3>
+          <p class="proof-note">After checkout, submit a transaction ID to unlock instant export.</p>
+          <label>
+            Payer email
+            <input id="payer-email" name="payerEmail" type="email" required placeholder="you@company.com" />
+          </label>
+          <label>
+            Transaction ID
+            <input id="transaction-id" name="transactionId" maxlength="120" required placeholder="ch_... or invoice_..." />
+          </label>
+          <label>
+            Evidence URL (optional)
+            <input id="evidence-url" name="evidenceUrl" type="url" placeholder="https://..." />
+          </label>
+          <label>
+            Note (optional)
+            <textarea id="proof-note" name="note" rows="2" maxlength="500"></textarea>
+          </label>
+          <button id="proof-btn" type="submit">Submit payment proof</button>
+        </form>
+        <p id="billing-status" class="billing-status" data-tone="neutral">Checkout not started.</p>
+        <pre id="export-output" hidden></pre>
       </section>
 
       <section class="card muted">

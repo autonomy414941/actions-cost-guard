@@ -155,6 +155,45 @@ button.secondary {
   border: 1px solid #c3cbb8;
 }
 
+.action-row {
+  margin-top: 0.9rem;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.proof-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.65rem;
+  border-top: 1px solid #d9dece;
+  padding-top: 0.9rem;
+}
+
+.proof-form h3 {
+  margin: 0;
+}
+
+.proof-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.billing-status {
+  margin: 0.95rem 0 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.billing-status[data-tone="ok"] {
+  color: #1c563d;
+}
+
+.billing-status[data-tone="error"] {
+  color: #8c1f0e;
+}
+
 .result h2,
 .muted h2 {
   margin-top: 0;
@@ -190,6 +229,10 @@ pre {
 
   .hero-actions {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .action-row {
     flex-direction: column;
   }
 }
