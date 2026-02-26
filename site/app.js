@@ -5,6 +5,9 @@ const summaryEl = document.getElementById("summary");
 const policySnippetEl = document.getElementById("policy-snippet");
 const checkoutBtn = document.getElementById("checkout-btn");
 const submitBtn = document.getElementById("submit-btn");
+const workflowUrlInput = document.getElementById("workflow-url");
+const importBtn = document.getElementById("import-btn");
+const importStatusEl = document.getElementById("import-status");
 const workflowYamlInput = document.getElementById("workflow-yaml");
 const monthlyRunsInput = document.getElementById("monthly-runs");
 const budgetUsdInput = document.getElementById("budget-usd");
@@ -73,6 +76,55 @@ function initializeWorkflowYaml() {
   workflowYamlInput.value = savedWorkflow.trim() ? savedWorkflow : DEFAULT_WORKFLOW_YAML;
 }
 
+function persistWorkflowYaml(workflowYaml) {
+  try {
+    window.localStorage.setItem(WORKFLOW_STORAGE_KEY, workflowYaml);
+  } catch {
+    // Ignore browsers where localStorage is blocked.
+  }
+}
+
+function setImportStatus(message, isError = false) {
+  importStatusEl.textContent = message;
+  importStatusEl.classList.toggle("error", isError);
+}
+
+function formatImportError(errorCode) {
+  if (errorCode === "invalid_workflow_url") {
+    return "Enter a valid HTTPS GitHub workflow URL.";
+  }
+  if (errorCode === "invalid_workflow_host") {
+    return "Use github.com or raw.githubusercontent.com workflow links.";
+  }
+  if (errorCode === "invalid_workflow_path") {
+    return "URL must point to a .yml or .yaml workflow file.";
+  }
+  if (errorCode === "workflow_fetch_timeout") {
+    return "GitHub fetch timed out. Try again in a few seconds.";
+  }
+  if (errorCode === "workflow_fetch_failed") {
+    return "Could not fetch workflow YAML. Check the URL and repository visibility.";
+  }
+  if (errorCode === "workflow_too_large") {
+    return "Workflow file is too large to import.";
+  }
+  if (errorCode === "workflow_empty") {
+    return "Workflow file appears empty.";
+  }
+  return `Import failed: ${errorCode}`;
+}
+
+function buildEstimateRequest(workflowYamlOverride = null) {
+  return {
+    workflowYaml: (workflowYamlOverride || workflowYamlInput.value).trim() || DEFAULT_WORKFLOW_YAML,
+    monthlyRuns: Number(monthlyRunsInput.value),
+    budgetUsd: Number(budgetUsdInput.value),
+    policyMode: policyModeInput.value,
+    source: activeSource,
+    selfTest: false
+  };
+}
+
 function buildPolicySnippet(estimate) {
   return [
     "# PR cost policy",
@@ -116,43 +168,59 @@ function renderEstimate(payload) {
   resultSection.hidden = false;
 }
 
+async function generateEstimate(workflowYamlOverride = null) {
+  const payload = await postJson("/api/estimate", buildEstimateRequest(workflowYamlOverride));
+  activeSessionId = payload.sessionId;
+  activePaymentUrl = payload.checkout?.paymentUrl || null;
+  renderEstimate(payload);
+}
+
 initializeWorkflowYaml();
+setImportStatus("Supports github.com/blob and raw.githubusercontent.com links.");
 
 workflowYamlInput.addEventListener("input", () => {
-  try {
-    window.localStorage.setItem(WORKFLOW_STORAGE_KEY, workflowYamlInput.value);
-  } catch {
-    // Ignore browsers where localStorage is blocked.
-  }
+  persistWorkflowYaml(workflowYamlInput.value);
 });
 
 estimateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   submitBtn.disabled = true;
 
-  const workflowYaml = workflowYamlInput.value.trim() || DEFAULT_WORKFLOW_YAML;
-  const monthlyRuns = Number(monthlyRunsInput.value);
-  const budgetUsd = Number(budgetUsdInput.value);
-  const policyMode = policyModeInput.value;
-
   try {
-    const payload = await postJson("/api/estimate", {
-      workflowYaml,
-      monthlyRuns,
-      budgetUsd,
-      policyMode,
-      source: activeSource,
-      selfTest: false
-    });
-
-    activeSessionId = payload.sessionId;
-    activePaymentUrl = payload.checkout?.paymentUrl || null;
-    renderEstimate(payload);
+    await generateEstimate();
   } catch (error) {
     recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
     resultSection.hidden = false;
   } finally {
     submitBtn.disabled = false;
+  }
+});
+
+importBtn.addEventListener("click", async () => {
+  const workflowUrl = workflowUrlInput.value.trim();
+  if (!workflowUrl) {
+    setImportStatus("Enter a workflow URL before import.", true);
+    workflowUrlInput.focus();
+    return;
+  }
+
+  importBtn.disabled = true;
+  submitBtn.disabled = true;
+  setImportStatus("Importing workflow from GitHub...");
+
+  try {
+    const imported = await postJson("/api/workflow/import", { workflowUrl });
+    const importedYaml = imported.workflowYaml || "";
+    workflowYamlInput.value = importedYaml;
+    persistWorkflowYaml(importedYaml);
+    setImportStatus("Workflow imported. Generating estimate...");
+    await generateEstimate(importedYaml);
+    setImportStatus("Imported and estimated. Review the result below.");
+  } catch (error) {
+    setImportStatus(formatImportError(error.message), true);
+  } finally {
+    submitBtn.disabled = false;
+    importBtn.disabled = false;
   }
 });
 

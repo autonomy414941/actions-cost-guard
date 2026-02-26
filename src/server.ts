@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { estimateWorkflowCost, sanitizeEstimateInput } from "./estimator.js";
+import { fetchWorkflowYaml, resolveRawWorkflowUrl, sanitizeWorkflowUrl } from "./workflow-import.js";
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number.parseInt(process.env.PORT || "8080", 10);
@@ -169,7 +170,10 @@ function sendText(response: http.ServerResponse, statusCode: number, text: strin
 }
 
 function safeErrorCode(error: unknown): string {
-  if (error instanceof Error && /^invalid_[a-z0-9_]+$/.test(error.message)) {
+  if (
+    error instanceof Error &&
+    (/^invalid_[a-z0-9_]+$/.test(error.message) || /^workflow_[a-z0-9_]+$/.test(error.message))
+  ) {
     return error.message;
   }
   return "invalid_request";
@@ -341,6 +345,20 @@ const server = http.createServer(async (request, response) => {
           endpoint: "/api/billing/checkout",
           priceUsd: PRICE_USD
         }
+      });
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/api/workflow/import") {
+      const body = await parseBody(request);
+      const workflowUrl = sanitizeWorkflowUrl(body);
+      const rawWorkflowUrl = resolveRawWorkflowUrl(workflowUrl);
+      const workflowYaml = await fetchWorkflowYaml(rawWorkflowUrl);
+
+      sendJson(response, 200, {
+        status: "ok",
+        sourceUrl: rawWorkflowUrl,
+        workflowYaml
       });
       return;
     }

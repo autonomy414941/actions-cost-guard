@@ -17,6 +17,20 @@
 
       <section class="card">
         <form id="estimate-form">
+          <div class="import-row">
+            <label for="workflow-url">GitHub workflow URL (optional)</label>
+            <div class="import-controls">
+              <input
+                id="workflow-url"
+                name="workflowUrl"
+                type="url"
+                placeholder="https://github.com/org/repo/blob/main/.github/workflows/ci.yml"
+              />
+              <button type="button" id="import-btn" class="secondary">Import and estimate</button>
+            </div>
+            <p class="import-status" id="import-status">Supports github.com/blob and raw.githubusercontent.com links.</p>
+          </div>
+
           <label>
             Workflow YAML
             <textarea id="workflow-yaml" name="workflowYaml" required rows="14" placeholder="name: CI\non: [push, pull_request]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm test"></textarea>

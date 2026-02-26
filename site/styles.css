@@ -70,6 +70,29 @@ label {
   font-weight: 600;
 }
 
+.import-row {
+  margin-bottom: 0.9rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.import-controls {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.import-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.import-status.error {
+  color: #8c1f0e;
+}
+
 textarea,
 input,
 select,
@@ -111,6 +134,13 @@ button:disabled {
   cursor: wait;
 }
 
+button.secondary {
+  margin-top: 0;
+  background: #e8eee0;
+  color: #23413a;
+  border: 1px solid #c3cbb8;
+}
+
 .result h2,
 .muted h2 {
   margin-top: 0;
@@ -137,4 +167,10 @@ pre {
 
 .muted ul {
   margin-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .import-controls {
+    grid-template-columns: 1fr;
+  }
 }
