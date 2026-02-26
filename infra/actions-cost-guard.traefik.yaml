@@ -10,7 +10,7 @@ http:
     actions-cost-guard-https:
       entryPoints:
         - https
-      rule: "Host(`actions-cost-guard.devtoolbox.dedyn.io`) || Host(`actions-cost-guard.46.225.49.219.nip.io`)"
+      rule: "Host(`actions-cost-guard.devtoolbox.dedyn.io`)"
       service: actions-cost-guard
       priority: 1200
       tls:

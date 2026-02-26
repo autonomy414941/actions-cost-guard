@@ -19,7 +19,7 @@ docker run -d \
   --restart unless-stopped \
   --network coolify \
   -e DATA_DIR=/data \
-  -e PUBLIC_BASE_URL="http://actions-cost-guard.46.225.49.219.nip.io" \
+  -e PUBLIC_BASE_URL="https://actions-cost-guard.devtoolbox.dedyn.io" \
   -v "$PERSIST_DIR:/data" \
   "$IMAGE_NAME" >/dev/null
 

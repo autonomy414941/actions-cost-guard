@@ -5,9 +5,32 @@ const summaryEl = document.getElementById("summary");
 const policySnippetEl = document.getElementById("policy-snippet");
 const checkoutBtn = document.getElementById("checkout-btn");
 const submitBtn = document.getElementById("submit-btn");
+const workflowYamlInput = document.getElementById("workflow-yaml");
+const monthlyRunsInput = document.getElementById("monthly-runs");
+const budgetUsdInput = document.getElementById("budget-usd");
+const policyModeInput = document.getElementById("policy-mode");
+
+const DEFAULT_WORKFLOW_YAML = [
+  "name: CI",
+  "on: [push, pull_request]",
+  "jobs:",
+  "  build:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "      - run: npm ci",
+  "      - run: npm test",
+  "  lint:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "      - run: npm run lint"
+].join("\n");
+const WORKFLOW_STORAGE_KEY = "actions-cost-guard.workflow_yaml";
 
 let activeSessionId = null;
 let activePaymentUrl = null;
+const activeSource = resolveSource();
 
 async function postJson(url, payload) {
   const response = await fetch(url, {
@@ -22,6 +45,32 @@ async function postJson(url, payload) {
     throw new Error(data.error || "request_failed");
   }
   return data;
+}
+
+function normalizeSource(rawSource) {
+  if (typeof rawSource !== "string") {
+    return "web";
+  }
+  const normalized = rawSource.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(normalized)) {
+    return "web";
+  }
+  return normalized;
+}
+
+function resolveSource() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeSource(params.get("utm_source") || params.get("source") || params.get("ref") || "web");
+}
+
+function initializeWorkflowYaml() {
+  let savedWorkflow = "";
+  try {
+    savedWorkflow = window.localStorage.getItem(WORKFLOW_STORAGE_KEY) || "";
+  } catch {
+    savedWorkflow = "";
+  }
+  workflowYamlInput.value = savedWorkflow.trim() ? savedWorkflow : DEFAULT_WORKFLOW_YAML;
 }
 
 function buildPolicySnippet(estimate) {
@@ -67,14 +116,24 @@ function renderEstimate(payload) {
   resultSection.hidden = false;
 }
 
+initializeWorkflowYaml();
+
+workflowYamlInput.addEventListener("input", () => {
+  try {
+    window.localStorage.setItem(WORKFLOW_STORAGE_KEY, workflowYamlInput.value);
+  } catch {
+    // Ignore browsers where localStorage is blocked.
+  }
+});
+
 estimateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   submitBtn.disabled = true;
 
-  const workflowYaml = document.getElementById("workflow-yaml").value;
-  const monthlyRuns = Number(document.getElementById("monthly-runs").value);
-  const budgetUsd = Number(document.getElementById("budget-usd").value);
-  const policyMode = document.getElementById("policy-mode").value;
+  const workflowYaml = workflowYamlInput.value.trim() || DEFAULT_WORKFLOW_YAML;
+  const monthlyRuns = Number(monthlyRunsInput.value);
+  const budgetUsd = Number(budgetUsdInput.value);
+  const policyMode = policyModeInput.value;
 
   try {
     const payload = await postJson("/api/estimate", {
@@ -82,7 +141,7 @@ estimateForm.addEventListener("submit", async (event) => {
       monthlyRuns,
       budgetUsd,
       policyMode,
-      source: "web",
+      source: activeSource,
       selfTest: false
     });
 
@@ -107,7 +166,7 @@ checkoutBtn.addEventListener("click", async () => {
   try {
     const payload = await postJson("/api/billing/checkout", {
       sessionId: activeSessionId,
-      source: "web",
+      source: activeSource,
       selfTest: false
     });
 
@@ -124,7 +183,7 @@ checkoutBtn.addEventListener("click", async () => {
 });
 
 postJson("/api/events/landing-view", {
-  source: "web",
+  source: activeSource,
   selfTest: false,
   userAgent: navigator.userAgent
 }).catch(() => undefined);

@@ -9,7 +9,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number.parseInt(process.env.PORT || "8080", 10);
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "http://actions-cost-guard.46.225.49.219.nip.io";
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://actions-cost-guard.devtoolbox.dedyn.io";
 const PAYMENT_URL = process.env.PAYMENT_URL || "https://buy.stripe.com/test_eVq6oH8mqf5WeQJ2jQ";
 const PRICE_USD = Number.parseFloat(process.env.PRICE_USD || "19");
 
