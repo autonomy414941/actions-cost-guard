@@ -39,8 +39,7 @@ const OS_RATE_PER_MINUTE_USD: Record<string, number> = {
 
 const STEP_MINUTES = {
   uses: 1.5,
-  run: 3,
-  other: 1
+  run: 3
 };
 
 function roundMoney(value: number): number {
@@ -108,10 +107,6 @@ function parseJobsAndSteps(workflowYaml: string): Array<{ os: string; steps: num
       continue;
     }
 
-    if (/^\s{6}-\s+name\s*:/.test(line)) {
-      currentJob.steps += 1;
-      currentJob.minutes += STEP_MINUTES.other;
-    }
   }
 
   if (currentJob) {
@@ -215,7 +210,7 @@ export function estimateWorkflowCost(input: EstimateInput): EstimateResult {
     byOs,
     assumptions: [
       "Default base runtime is 2 minutes per job before step costs.",
-      "Step runtime assumptions: uses=1.5m, run=3m, named step without run/uses=1m.",
+      "Step runtime assumptions: uses=1.5m, run=3m.",
       "Hosted runner rates used: Linux $0.008/min, Windows $0.016/min, macOS $0.08/min.",
       "Matrix expansion is not modeled explicitly unless represented as separate jobs in YAML."
     ]
