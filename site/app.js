@@ -31,6 +31,7 @@ const DEFAULT_WORKFLOW_YAML = [
   "      - run: npm run lint"
 ].join("\n");
 const WORKFLOW_STORAGE_KEY = "actions-cost-guard.workflow_yaml";
+const AUTO_PREVIEW_STORAGE_KEY = "actions-cost-guard.auto_preview_v1";
 
 let activeSessionId = null;
 let activePaymentUrl = null;
@@ -80,6 +81,22 @@ function initializeWorkflowYaml() {
 function persistWorkflowYaml(workflowYaml) {
   try {
     window.localStorage.setItem(WORKFLOW_STORAGE_KEY, workflowYaml);
+  } catch {
+    // Ignore browsers where localStorage is blocked.
+  }
+}
+
+function hasCompletedAutoPreview() {
+  try {
+    return Boolean(window.localStorage.getItem(AUTO_PREVIEW_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+function markAutoPreviewCompleted() {
+  try {
+    window.localStorage.setItem(AUTO_PREVIEW_STORAGE_KEY, new Date().toISOString());
   } catch {
     // Ignore browsers where localStorage is blocked.
   }
@@ -191,6 +208,32 @@ async function generateEstimate({
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function shouldRunAutoPreview() {
+  const params = new URLSearchParams(window.location.search);
+  const preview = (params.get("preview") || "").trim().toLowerCase();
+  if (preview === "off" || preview === "0") {
+    return false;
+  }
+  return !hasCompletedAutoPreview();
+}
+
+async function runAutoPreview() {
+  setBusyState(true);
+  setImportStatus("Generating instant sample preview...");
+  try {
+    await generateEstimate({
+      workflowYamlOverride: workflowYamlInput.value.trim() || DEFAULT_WORKFLOW_YAML,
+      estimateIntent: "auto_preview"
+    });
+    setImportStatus("Instant sample preview ready. Import your own workflow URL to compare.");
+    markAutoPreviewCompleted();
+  } catch (error) {
+    setImportStatus(`Instant preview failed: ${error.message}`, true);
+  } finally {
+    setBusyState(false);
+  }
+}
+
 initializeWorkflowYaml();
 setImportStatus("Supports github.com/blob and raw.githubusercontent.com links.");
 
@@ -288,6 +331,12 @@ checkoutBtn.addEventListener("click", async () => {
     checkoutBtn.disabled = false;
   }
 });
+
+if (shouldRunAutoPreview()) {
+  window.setTimeout(() => {
+    void runAutoPreview();
+  }, 400);
+}
 
 postJson("/api/events/landing-view", {
   source: activeSource,

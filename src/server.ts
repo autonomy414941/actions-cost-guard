@@ -19,7 +19,7 @@ const EVENTS_FILE = path.join(DATA_DIR, "events.jsonl");
 const SITE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../site");
 
 type EventType = "landing_view" | "estimate_generated" | "checkout_started";
-type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "unknown";
+type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "auto_preview" | "unknown";
 
 type EstimateSession = {
   sessionId: string;
@@ -101,7 +101,12 @@ function normalizeEstimateIntent(value: unknown): EstimateIntent {
     return "unknown";
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === "manual_submit" || normalized === "import_url" || normalized === "sample_cta") {
+  if (
+    normalized === "manual_submit" ||
+    normalized === "import_url" ||
+    normalized === "sample_cta" ||
+    normalized === "auto_preview"
+  ) {
     return normalized;
   }
   return "unknown";
