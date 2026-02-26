@@ -19,6 +19,7 @@ const EVENTS_FILE = path.join(DATA_DIR, "events.jsonl");
 const SITE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../site");
 
 type EventType = "landing_view" | "estimate_generated" | "checkout_started";
+type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "unknown";
 
 type EstimateSession = {
   sessionId: string;
@@ -93,6 +94,17 @@ function normalizeSource(value: unknown, fallback = "web"): string {
     return fallback;
   }
   return normalized;
+}
+
+function normalizeEstimateIntent(value: unknown): EstimateIntent {
+  if (typeof value !== "string") {
+    return "unknown";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "manual_submit" || normalized === "import_url" || normalized === "sample_cta") {
+    return normalized;
+  }
+  return "unknown";
 }
 
 function emptyCounts(): MetricsCounts {
@@ -301,6 +313,7 @@ const server = http.createServer(async (request, response) => {
       const body = await parseBody(request);
       const source = normalizeSource(body.source, "web");
       const selfTest = parseBoolean(body.selfTest);
+      const estimateIntent = normalizeEstimateIntent(body.estimateIntent);
       const estimateInput = sanitizeEstimateInput(body);
       const estimate = estimateWorkflowCost(estimateInput);
 
@@ -327,7 +340,8 @@ const server = http.createServer(async (request, response) => {
           details: {
             monthlyCostUsd: estimate.summary.monthlyCostUsd,
             budgetUsd: estimate.summary.budgetUsd,
-            policyDecision: estimate.summary.policyDecision
+            policyDecision: estimate.summary.policyDecision,
+            estimateIntent
           }
         })
       ]);

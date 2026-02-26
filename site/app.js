@@ -5,6 +5,7 @@ const summaryEl = document.getElementById("summary");
 const policySnippetEl = document.getElementById("policy-snippet");
 const checkoutBtn = document.getElementById("checkout-btn");
 const submitBtn = document.getElementById("submit-btn");
+const sampleEstimateBtn = document.getElementById("sample-estimate-btn");
 const workflowUrlInput = document.getElementById("workflow-url");
 const importBtn = document.getElementById("import-btn");
 const importStatusEl = document.getElementById("import-status");
@@ -168,11 +169,26 @@ function renderEstimate(payload) {
   resultSection.hidden = false;
 }
 
-async function generateEstimate(workflowYamlOverride = null) {
-  const payload = await postJson("/api/estimate", buildEstimateRequest(workflowYamlOverride));
+function setBusyState(isBusy) {
+  submitBtn.disabled = isBusy;
+  importBtn.disabled = isBusy;
+  if (sampleEstimateBtn) {
+    sampleEstimateBtn.disabled = isBusy;
+  }
+}
+
+async function generateEstimate({
+  workflowYamlOverride = null,
+  estimateIntent = "manual_submit"
+} = {}) {
+  const payload = await postJson("/api/estimate", {
+    ...buildEstimateRequest(workflowYamlOverride),
+    estimateIntent
+  });
   activeSessionId = payload.sessionId;
   activePaymentUrl = payload.checkout?.paymentUrl || null;
   renderEstimate(payload);
+  resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 initializeWorkflowYaml();
@@ -184,15 +200,15 @@ workflowYamlInput.addEventListener("input", () => {
 
 estimateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  submitBtn.disabled = true;
+  setBusyState(true);
 
   try {
-    await generateEstimate();
+    await generateEstimate({ estimateIntent: "manual_submit" });
   } catch (error) {
     recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
     resultSection.hidden = false;
   } finally {
-    submitBtn.disabled = false;
+    setBusyState(false);
   }
 });
 
@@ -204,8 +220,7 @@ importBtn.addEventListener("click", async () => {
     return;
   }
 
-  importBtn.disabled = true;
-  submitBtn.disabled = true;
+  setBusyState(true);
   setImportStatus("Importing workflow from GitHub...");
 
   try {
@@ -214,15 +229,39 @@ importBtn.addEventListener("click", async () => {
     workflowYamlInput.value = importedYaml;
     persistWorkflowYaml(importedYaml);
     setImportStatus("Workflow imported. Generating estimate...");
-    await generateEstimate(importedYaml);
+    await generateEstimate({
+      workflowYamlOverride: importedYaml,
+      estimateIntent: "import_url"
+    });
     setImportStatus("Imported and estimated. Review the result below.");
   } catch (error) {
     setImportStatus(formatImportError(error.message), true);
   } finally {
-    submitBtn.disabled = false;
-    importBtn.disabled = false;
+    setBusyState(false);
   }
 });
+
+if (sampleEstimateBtn) {
+  sampleEstimateBtn.addEventListener("click", async () => {
+    setBusyState(true);
+    workflowYamlInput.value = DEFAULT_WORKFLOW_YAML;
+    persistWorkflowYaml(DEFAULT_WORKFLOW_YAML);
+    setImportStatus("Using sample workflow. Generating estimate...");
+    try {
+      await generateEstimate({
+        workflowYamlOverride: DEFAULT_WORKFLOW_YAML,
+        estimateIntent: "sample_cta"
+      });
+      setImportStatus("Sample estimate ready. Edit YAML or import yours next.");
+    } catch (error) {
+      setImportStatus(`Sample estimate failed: ${error.message}`, true);
+      recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
+      resultSection.hidden = false;
+    } finally {
+      setBusyState(false);
+    }
+  });
+}
 
 checkoutBtn.addEventListener("click", async () => {
   if (!activeSessionId) {

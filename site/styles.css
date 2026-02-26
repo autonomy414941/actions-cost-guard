@@ -51,6 +51,20 @@ h1 {
   max-width: 58ch;
 }
 
+.hero-actions {
+  margin-top: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.hero-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -172,5 +186,10 @@ pre {
 @media (max-width: 700px) {
   .import-controls {
     grid-template-columns: 1fr;
+  }
+
+  .hero-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
