@@ -59,6 +59,10 @@ h1 {
   flex-wrap: wrap;
 }
 
+.hero-actions button {
+  margin-top: 0;
+}
+
 .hero-note {
   margin: 0;
   color: var(--muted);
@@ -180,10 +184,21 @@ button.secondary {
   font-size: 0.92rem;
 }
 
+.proof-gate-note {
+  margin-top: 0.8rem;
+}
+
 .billing-status {
   margin: 0.95rem 0 0;
   font-size: 0.95rem;
   color: var(--muted);
+}
+
+.billing-link {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: #1a3f36;
+  font-weight: 600;
 }
 
 .billing-status[data-tone="ok"] {

@@ -24,7 +24,7 @@ type EventType =
   | "checkout_started"
   | "payment_evidence_submitted"
   | "policy_pack_exported";
-type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "auto_preview" | "unknown";
+type EstimateIntent = "manual_submit" | "import_url" | "sample_cta" | "auto_preview" | "paid_cta_bootstrap" | "unknown";
 
 type PaymentProof = {
   submittedAt: string;
@@ -40,6 +40,7 @@ type EstimateSession = {
   updatedAt: string;
   source: string;
   selfTest: boolean;
+  estimateIntent: EstimateIntent;
   jobs: number;
   stepCount: number;
   minutesPerRun: number;
@@ -131,7 +132,8 @@ function normalizeEstimateIntent(value: unknown): EstimateIntent {
     normalized === "manual_submit" ||
     normalized === "import_url" ||
     normalized === "sample_cta" ||
-    normalized === "auto_preview"
+    normalized === "auto_preview" ||
+    normalized === "paid_cta_bootstrap"
   ) {
     return normalized;
   }
@@ -475,6 +477,7 @@ const server = http.createServer(async (request, response) => {
         updatedAt: now,
         source,
         selfTest,
+        estimateIntent,
         jobs: estimate.summary.jobs,
         stepCount: estimate.summary.stepCount,
         minutesPerRun: estimate.summary.minutesPerRun,
@@ -551,6 +554,7 @@ const server = http.createServer(async (request, response) => {
           monthlyCostUsd: session.monthlyCostUsd,
           budgetUsd: session.budgetUsd,
           policyDecision: session.policyDecision,
+          estimateIntent: normalizeEstimateIntent(session.estimateIntent),
           priceUsd: PRICE_USD
         }
       });

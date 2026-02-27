@@ -6,9 +6,12 @@ const recommendationEl = document.getElementById("recommendation");
 const summaryEl = document.getElementById("summary");
 const policySnippetEl = document.getElementById("policy-snippet");
 const billingStatusEl = document.getElementById("billing-status");
+const billingLinkEl = document.getElementById("billing-link");
+const proofGateNoteEl = document.getElementById("proof-gate-note");
 const exportOutput = document.getElementById("export-output");
 
 const checkoutBtn = document.getElementById("checkout-btn");
+const startPaidBtn = document.getElementById("start-paid-btn");
 const proofBtn = document.getElementById("proof-btn");
 const exportBtn = document.getElementById("export-btn");
 const submitBtn = document.getElementById("submit-btn");
@@ -39,7 +42,6 @@ const DEFAULT_WORKFLOW_YAML = [
 ].join("\n");
 
 const WORKFLOW_STORAGE_KEY = "actions-cost-guard.workflow_yaml";
-const AUTO_PREVIEW_STORAGE_KEY = "actions-cost-guard.auto_preview_v1";
 
 const queryParams = new URLSearchParams(window.location.search);
 const isSelfTest = ["1", "true", "yes"].includes((queryParams.get("selfTest") || "").toLowerCase());
@@ -98,30 +100,33 @@ function persistWorkflowYaml(workflowYaml) {
   }
 }
 
-function hasCompletedAutoPreview() {
-  try {
-    return Boolean(window.localStorage.getItem(AUTO_PREVIEW_STORAGE_KEY));
-  } catch {
-    return false;
-  }
-}
-
-function markAutoPreviewCompleted() {
-  try {
-    window.localStorage.setItem(AUTO_PREVIEW_STORAGE_KEY, new Date().toISOString());
-  } catch {
-    // Ignore browsers where localStorage is blocked.
-  }
-}
-
 function setImportStatus(message, isError = false) {
   importStatusEl.textContent = message;
   importStatusEl.classList.toggle("error", isError);
 }
 
-function setBillingStatus(message, tone = "neutral") {
+function setBillingStatus(message, tone = "neutral", actionUrl = null) {
   billingStatusEl.textContent = message;
   billingStatusEl.dataset.tone = tone;
+  if (!billingLinkEl) {
+    return;
+  }
+  if (actionUrl) {
+    billingLinkEl.href = actionUrl;
+    billingLinkEl.hidden = false;
+  } else {
+    billingLinkEl.href = "#";
+    billingLinkEl.hidden = true;
+  }
+}
+
+function setProofFormVisibility(visible) {
+  if (proofForm) {
+    proofForm.hidden = !visible;
+  }
+  if (proofGateNoteEl) {
+    proofGateNoteEl.hidden = visible;
+  }
 }
 
 function formatImportError(errorCode) {
@@ -182,9 +187,10 @@ function resetBillingState() {
   if (proofForm) {
     proofForm.reset();
   }
+  setProofFormVisibility(false);
   exportOutput.textContent = "";
   exportOutput.hidden = true;
-  setBillingStatus("Checkout not started.", "neutral");
+  setBillingStatus("Checkout not started.", "neutral", null);
 }
 
 function renderEstimate(payload) {
@@ -220,11 +226,15 @@ function setBusyState(isBusy) {
   if (sampleEstimateBtn) {
     sampleEstimateBtn.disabled = isBusy;
   }
+  if (startPaidBtn) {
+    startPaidBtn.disabled = isBusy;
+  }
 }
 
 async function generateEstimate({
   workflowYamlOverride = null,
-  estimateIntent = "manual_submit"
+  estimateIntent = "manual_submit",
+  scrollToResult = true
 } = {}) {
   const payload = await postJson("/api/estimate", {
     ...buildEstimateRequest(workflowYamlOverride),
@@ -233,15 +243,14 @@ async function generateEstimate({
   activeSessionId = payload.sessionId;
   activePaymentUrl = payload.checkout?.paymentUrl || null;
   renderEstimate(payload);
-  resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (scrollToResult) {
+    resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function shouldRunAutoPreview() {
   const preview = (queryParams.get("preview") || "").trim().toLowerCase();
-  if (preview === "off" || preview === "0") {
-    return false;
-  }
-  return !hasCompletedAutoPreview();
+  return preview === "1" || preview === "on" || preview === "auto";
 }
 
 function requireSessionId() {
@@ -257,10 +266,10 @@ async function runAutoPreview() {
   try {
     await generateEstimate({
       workflowYamlOverride: workflowYamlInput.value.trim() || DEFAULT_WORKFLOW_YAML,
-      estimateIntent: "auto_preview"
+      estimateIntent: "auto_preview",
+      scrollToResult: false
     });
     setImportStatus("Instant sample preview ready. Import your own workflow URL to compare.");
-    markAutoPreviewCompleted();
   } catch (error) {
     setImportStatus(`Instant preview failed: ${error.message}`, true);
   } finally {
@@ -270,7 +279,8 @@ async function runAutoPreview() {
 
 initializeWorkflowYaml();
 setImportStatus("Supports github.com/blob and raw.githubusercontent.com links.");
-setBillingStatus("Checkout not started.", "neutral");
+setBillingStatus("Checkout not started.", "neutral", null);
+setProofFormVisibility(false);
 
 workflowYamlInput.addEventListener("input", () => {
   persistWorkflowYaml(workflowYamlInput.value);
@@ -331,7 +341,7 @@ if (sampleEstimateBtn) {
         workflowYamlOverride: DEFAULT_WORKFLOW_YAML,
         estimateIntent: "sample_cta"
       });
-      setImportStatus("Sample estimate ready. Edit YAML or import yours next.");
+      setImportStatus("Sample estimate ready. Edit YAML, import yours, or continue to checkout.");
     } catch (error) {
       setImportStatus(`Sample estimate failed: ${error.message}`, true);
       recommendationEl.textContent = `Could not generate estimate: ${error.message}`;
@@ -343,12 +353,25 @@ if (sampleEstimateBtn) {
   });
 }
 
-checkoutBtn.addEventListener("click", async () => {
+async function openCheckout({ bootstrapEstimate = false } = {}) {
   checkoutBtn.disabled = true;
-  setBillingStatus("Preparing checkout...", "neutral");
+  if (startPaidBtn) {
+    startPaidBtn.disabled = true;
+  }
+  let checkoutWindow = null;
+  setBillingStatus("Preparing checkout...", "neutral", null);
 
   try {
+    if (bootstrapEstimate && !activeSessionId) {
+      await generateEstimate({
+        workflowYamlOverride: workflowYamlInput.value.trim() || DEFAULT_WORKFLOW_YAML,
+        estimateIntent: "paid_cta_bootstrap",
+        scrollToResult: false
+      });
+      setImportStatus("Checkout-ready estimate generated. Review details below after payment.");
+    }
     const sessionId = requireSessionId();
+    checkoutWindow = window.open("", "_blank", "noopener,noreferrer");
     const payload = await postJson("/api/billing/checkout", {
       sessionId,
       source: activeSource,
@@ -359,18 +382,40 @@ checkoutBtn.addEventListener("click", async () => {
     if (!url) {
       throw new Error("missing_payment_url");
     }
-    window.open(url, "_blank", "noopener,noreferrer");
-    setBillingStatus("Checkout opened in a new tab. Submit payment proof here to unlock export.", "ok");
+    if (checkoutWindow && !checkoutWindow.closed) {
+      checkoutWindow.location.replace(url);
+      setBillingStatus("Checkout opened in a new tab. Submit payment proof here to unlock export.", "ok", null);
+    } else {
+      setBillingStatus("Checkout session ready. Open the link below, then submit payment proof here.", "ok", url);
+    }
+    setProofFormVisibility(true);
+    resultSection.hidden = false;
   } catch (error) {
+    if (checkoutWindow && !checkoutWindow.closed) {
+      checkoutWindow.close();
+    }
     const message =
       error.message === "session_not_ready"
         ? "Generate an estimate before checkout."
         : `Checkout could not start: ${error.message}`;
-    setBillingStatus(message, "error");
+    setBillingStatus(message, "error", null);
   } finally {
     checkoutBtn.disabled = false;
+    if (startPaidBtn) {
+      startPaidBtn.disabled = false;
+    }
   }
+}
+
+checkoutBtn.addEventListener("click", async () => {
+  await openCheckout();
 });
+
+if (startPaidBtn) {
+  startPaidBtn.addEventListener("click", async () => {
+    await openCheckout({ bootstrapEstimate: true });
+  });
+}
 
 proofForm.addEventListener("submit", async (event) => {
   event.preventDefault();

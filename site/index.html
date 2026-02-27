@@ -14,8 +14,9 @@
         <h1>Estimate GitHub Actions spend before you merge</h1>
         <p class="subhead">Paste workflow YAML, set monthly run volume and budget, then get a pass/warn/block policy decision in seconds. No login or credit card required for the estimate.</p>
         <div class="hero-actions">
-          <button type="button" id="sample-estimate-btn" class="secondary">Run instant sample again</button>
-          <p class="hero-note">An instant sample preview loads automatically on first visit. Then import your own workflow URL.</p>
+          <button type="button" id="start-paid-btn" class="checkout">Start paid plan ($19/month)</button>
+          <button type="button" id="sample-estimate-btn" class="secondary">Run sample estimate</button>
+          <p class="hero-note">Start paid instantly, or run a sample/import your own workflow first.</p>
         </div>
       </section>
 
@@ -39,7 +40,7 @@
             Workflow YAML
             <textarea id="workflow-yaml" name="workflowYaml" required rows="14" placeholder="name: CI\non: [push, pull_request]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm test"></textarea>
           </label>
-          <p class="hint">A working sample is prefilled and auto-previewed on first visit. Edit it or click generate right away.</p>
+          <p class="hint">A working sample is prefilled. Generate to score it, or import your own workflow URL first.</p>
 
           <div class="fields">
             <label>
@@ -74,7 +75,8 @@
           <button id="checkout-btn" class="checkout">Open checkout ($19/month)</button>
           <button id="export-btn" class="secondary" type="button">Export unlocked policy pack</button>
         </div>
-        <form id="proof-form" class="proof-form">
+        <p class="proof-note proof-gate-note" id="proof-gate-note">Checkout first, then submit payment proof to unlock export.</p>
+        <form id="proof-form" class="proof-form" hidden>
           <h3>Payment proof unlock</h3>
           <p class="proof-note">After checkout, submit a transaction ID to unlock instant export.</p>
           <label>
@@ -96,6 +98,7 @@
           <button id="proof-btn" type="submit">Submit payment proof</button>
         </form>
         <p id="billing-status" class="billing-status" data-tone="neutral">Checkout not started.</p>
+        <a id="billing-link" class="billing-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open checkout link</a>
         <pre id="export-output" hidden></pre>
       </section>
 
